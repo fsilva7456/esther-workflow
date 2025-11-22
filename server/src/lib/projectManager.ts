@@ -10,18 +10,36 @@ export interface Project {
 
 const PROJECTS_FILE = path.join(__dirname, '../../projects.json');
 
+// Default projects that are always available (for Vercel deployment)
+const DEFAULT_PROJECTS: Project[] = [
+    {
+        id: 'rad-project-default',
+        name: 'RAD Project',
+        repoPath: 'c:\\Users\\FrancisSilva\\Desktop\\RAD',
+        testCommand: 'npm test'
+    }
+];
+
 export const projectManager = {
     listProjects: (): Project[] => {
-        if (!fs.existsSync(PROJECTS_FILE)) {
-            return [];
+        // Always include default projects
+        let projects = [...DEFAULT_PROJECTS];
+        
+        // Try to load additional projects from file
+        if (fs.existsSync(PROJECTS_FILE)) {
+            try {
+                const content = fs.readFileSync(PROJECTS_FILE, 'utf-8');
+                const fileProjects = JSON.parse(content) as Project[];
+                // Merge, avoiding duplicates by ID
+                const defaultIds = new Set(DEFAULT_PROJECTS.map(p => p.id));
+                const additionalProjects = fileProjects.filter(p => !defaultIds.has(p.id));
+                projects = [...projects, ...additionalProjects];
+            } catch (error) {
+                console.error('Error reading projects file:', error);
+            }
         }
-        try {
-            const content = fs.readFileSync(PROJECTS_FILE, 'utf-8');
-            return JSON.parse(content) as Project[];
-        } catch (error) {
-            console.error('Error reading projects file:', error);
-            return [];
-        }
+        
+        return projects;
     },
 
     addProject: (project: Omit<Project, 'id'>): Project => {
