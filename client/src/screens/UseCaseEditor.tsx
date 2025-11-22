@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Save, MessageSquare, ArrowRight, FileText, Wand2 } from 'lucide-react';
+import { getApiUrl } from '../config/api';
 
 interface UseCase {
     id: string;
@@ -38,7 +39,7 @@ export const UseCaseEditor: React.FC = () => {
 
     const fetchConfig = async () => {
         try {
-            const res = await axios.get(`/api/projects/${projectId}/config`);
+            const res = await axios.get(getApiUrl(`/api/projects/${projectId}/config`));
             setConfig(res.data);
             if (res.data.useCases.length > 0) {
                 setSelectedUseCase(res.data.useCases[0]);
@@ -50,7 +51,7 @@ export const UseCaseEditor: React.FC = () => {
 
     const fetchSpec = async (useCaseId: string) => {
         try {
-            const res = await axios.get(`/api/projects/${projectId}/use-cases/${useCaseId}/spec`);
+            const res = await axios.get(getApiUrl(`/api/projects/${projectId}/use-cases/${useCaseId}/spec`));
             setSpecContent(res.data.content);
         } catch (error) {
             console.error('Failed to fetch spec', error);
@@ -60,7 +61,7 @@ export const UseCaseEditor: React.FC = () => {
     const handleSaveSpec = async () => {
         if (!selectedUseCase || !projectId) return;
         try {
-            await axios.post(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec`, {
+            await axios.post(getApiUrl(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec`), {
                 content: specContent
             });
             alert('Spec saved!');
@@ -73,7 +74,7 @@ export const UseCaseEditor: React.FC = () => {
         if (!selectedUseCase || !projectId) return;
         setLoading(true);
         try {
-            const res = await axios.post(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec/structure`, {
+            const res = await axios.post(getApiUrl(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec/structure`), {
                 description
             });
             setSpecContent(res.data.spec);
@@ -88,7 +89,7 @@ export const UseCaseEditor: React.FC = () => {
         if (!selectedUseCase || !projectId) return;
         setLoading(true);
         try {
-            const res = await axios.post(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec/revise`, {
+            const res = await axios.post(getApiUrl(`/api/projects/${projectId}/use-cases/${selectedUseCase.id}/spec/revise`), {
                 currentSpec: specContent,
                 instructions
             });

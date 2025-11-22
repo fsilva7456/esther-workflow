@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Plus, Folder } from 'lucide-react';
+import { getApiUrl } from '../config/api';
 
 interface Project {
     id: string;
@@ -22,7 +23,7 @@ export const ProjectSelector: React.FC = () => {
 
     const fetchProjects = async () => {
         try {
-            const res = await axios.get('/api/projects');
+            const res = await axios.get(getApiUrl('/api/projects'));
             setProjects(res.data);
         } catch (error) {
             console.error('Failed to fetch projects', error);
@@ -31,7 +32,7 @@ export const ProjectSelector: React.FC = () => {
 
     const handleAddProject = async () => {
         try {
-            await axios.post('/api/projects', newProject);
+            await axios.post(getApiUrl('/api/projects'), newProject);
             setShowAddModal(false);
             fetchProjects();
             setNewProject({ name: '', repoPath: '', testCommand: '' });
