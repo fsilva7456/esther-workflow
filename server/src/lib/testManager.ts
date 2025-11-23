@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { glob } from 'glob';
 
 export const testManager = {
     readTestFile: (repoPath: string, testFilePath: string): string | null => {
@@ -26,6 +27,20 @@ export const testManager = {
         } catch (error) {
             console.error(`Error writing test file to ${fullPath}:`, error);
             throw error;
+        }
+    },
+
+    listTestFiles: async (repoPath: string): Promise<string[]> => {
+        try {
+            // Look for .test.ts or .spec.ts files
+            const files = await glob('**/*.{test,spec}.{ts,js}', {
+                cwd: repoPath,
+                ignore: ['node_modules/**']
+            });
+            return files;
+        } catch (error) {
+            console.error('Error listing test files:', error);
+            return [];
         }
     }
 };

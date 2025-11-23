@@ -1,128 +1,198 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Play, CheckCircle, XCircle, Clock, Terminal } from 'lucide-react';
+import { Play, FileText, CheckCircle, XCircle, Clock, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Sidebar } from '../components/Sidebar';
+import { getApiUrl } from '../config/api';
 
-interface TestRun {
-    runId: string;
-    status: 'pending' | 'passed' | 'failed';
+interface TestRunResult {
+    success: boolean;
     output: string;
-    timestamp: string;
+    error?: string;
+    duration: number;
 }
 
 export const TestDashboard: React.FC = () => {
     const { projectId } = useParams<{ projectId: string }>();
-    const [runs, setRuns] = useState<TestRun[]>([]);
-    const [selectedRun, setSelectedRun] = useState<TestRun | null>(null);
-    const [running, setRunning] = useState(false);
+    const navigate = useNavigate();
+    const [testFiles, setTestFiles] = useState<string[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [runningTest, setRunningTest] = useState<string | null>(null);
+    const [results, setResults] = useState<Record<string, TestRunResult>>({});
+    const [config, setConfig] = useState<any>(null);
 
-    // In a real app, we'd poll or use websockets. Here we just fetch manually or after run.
+    useEffect(() => {
+        if (projectId) {
+            fetchConfig();
+            fetchTestFiles();
+        }
+    }, [projectId]);
 
-    const handleRunTests = async () => {
-        setRunning(true);
+    const fetchConfig = async () => {
         try {
-            const res = await axios.post(`/api/projects/${projectId}/test-runs`, {
-                scope: 'all' // Simplified
-            });
-            const runId = res.data.runId;
-
-            // Poll for result
-            const interval = setInterval(async () => {
-                try {
-                    const runRes = await axios.get(`/api/projects/${projectId}/test-runs/${runId}`);
-                    if (runRes.data.status !== 'pending') {
-                        clearInterval(interval);
-                        setRunning(false);
-                        setRuns(prev => [runRes.data, ...prev]);
-                        setSelectedRun(runRes.data);
-                    }
-                } catch (e) {
-                    clearInterval(interval);
-                    setRunning(false);
-                }
-            }, 1000);
-
+            const res = await axios.get(getApiUrl(`/api/projects/${projectId}/config`));
+            setConfig(res.data);
         } catch (error) {
-            console.error('Failed to start test run', error);
-            setRunning(false);
+            console.error('Failed to fetch config', error);
         }
     };
 
-    return (
-        <div className="flex h-screen bg-gray-100 flex-col">
-            {/* Header */}
-            <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-                <h1 className="text-xl font-semibold text-gray-800">Test Dashboard</h1>
-                <button
-                    onClick={handleRunTests}
-                    disabled={running}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white ${running ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'
-                        }`}
-                >
-                    <Play size={18} /> {running ? 'Running...' : 'Run All Tests'}
-                </button>
-            </div>
+    const fetchTestFiles = async () => {
+        try {
+            const res = await axios.get(getApiUrl(`/api/projects/${projectId}/tests`));
+            setTestFiles(res.data.files);
+        } catch (error) {
+            console.error('Failed to fetch test files', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            <div className="flex-1 flex overflow-hidden">
-                {/* Sidebar List */}
-                <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-                    <div className="p-4 border-b border-gray-200 bg-gray-50">
-                        <h2 className="font-medium text-gray-700">Recent Runs</h2>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                        {runs.map(run => (
-                            <button
-                                key={run.runId}
-                                onClick={() => setSelectedRun(run)}
-                                className={`w-full text-left p-4 border-b border-gray-100 hover:bg-gray-50 flex items-center justify-between ${selectedRun?.runId === run.runId ? 'bg-blue-50' : ''
-                                    }`}
-                            >
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        {run.status === 'passed' ? (
-                                            <CheckCircle size={16} className="text-green-500" />
-                                        ) : (
-                                            <XCircle size={16} className="text-red-500" />
-                                        )}
-                                        <span className="font-medium text-gray-900">Run #{run.runId.slice(-4)}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                                        <Clock size={12} />
-                                        {new Date(run.timestamp).toLocaleTimeString()}
-                                    </div>
-                                </div>
-                            </button>
-                        ))}
-                        {runs.length === 0 && (
-                            <div className="p-8 text-center text-gray-400 text-sm">
-                                No runs yet.
-                            </div>
-                        )}
+    const handleRunTest = async (filePath: string) => {
+        setRunningTest(filePath);
+        try {
+            // Start the run
+            const startRes = await axios.post(getApiUrl(`/api/projects/${projectId}/test-runs`), {
+                filePath
+            });
+            const runId = startRes.data.runId;
+
+            // Poll for result
+            pollResult(runId, filePath);
+
+        } catch (error) {
+            console.error('Failed to start test run', error);
+            setRunningTest(null);
+        }
+    };
+
+    const pollResult = async (runId: string, filePath: string) => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await axios.get(getApiUrl(`/api/projects/${projectId}/test-runs/${runId}`));
+                if (res.data) {
+                    clearInterval(interval);
+                    setResults(prev => ({ ...prev, [filePath]: res.data }));
+                    setRunningTest(null);
+                }
+            } catch (error) {
+                // If 404, maybe not ready yet? Or actually failed.
+            }
+        }, 1000);
+
+        // Timeout after 30s
+        setTimeout(() => {
+            clearInterval(interval);
+            if (runningTest === filePath) {
+                setRunningTest(null);
+                alert('Test run timed out');
+            }
+        }, 30000);
+    };
+
+    return (
+        <div className="flex h-screen bg-gray-100 flex-row">
+            {config && (
+                <Sidebar
+                    projectId={projectId || ''}
+                    projectName={config.projectName}
+                    useCases={config.useCases}
+                />
+            )}
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+                <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
+                    <div className="flex items-center gap-4">
+                        <button
+                            onClick={() => navigate(`/projects/${projectId}/use-cases`)}
+                            className="text-gray-500 hover:text-gray-700"
+                            title="Back to Editor"
+                        >
+                            <ArrowLeft size={20} />
+                        </button>
+                        <h1 className="text-xl font-semibold text-gray-800">Test Dashboard</h1>
                     </div>
                 </div>
 
-                {/* Main Detail View */}
-                <div className="flex-1 bg-gray-900 p-6 overflow-hidden flex flex-col">
-                    {selectedRun ? (
-                        <>
-                            <div className="flex items-center justify-between mb-4 text-white">
-                                <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <Terminal size={20} /> Output for Run #{selectedRun.runId}
-                                </h2>
-                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${selectedRun.status === 'passed' ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'
-                                    }`}>
-                                    {selectedRun.status.toUpperCase()}
-                                </span>
+                <div className="flex-1 p-8 overflow-y-auto">
+                    <div className="max-w-4xl mx-auto">
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                                <h2 className="font-medium text-gray-700">Available Tests</h2>
+                                <button
+                                    onClick={fetchTestFiles}
+                                    className="text-sm text-blue-600 hover:text-blue-800"
+                                >
+                                    Refresh
+                                </button>
                             </div>
-                            <div className="flex-1 bg-black rounded-lg p-4 overflow-auto font-mono text-sm text-gray-300 whitespace-pre-wrap">
-                                {selectedRun.output}
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-center text-gray-500">
-                            Select a run to view details
+
+                            {loading ? (
+                                <div className="p-8 text-center text-gray-500">Loading tests...</div>
+                            ) : testFiles.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">
+                                    No test files found. Go to a Use Case to generate some!
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-gray-100">
+                                    {testFiles.map(file => (
+                                        <div key={file} className="p-4 hover:bg-gray-50 transition-colors">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className="flex items-center gap-3">
+                                                    <FileText size={20} className="text-gray-400" />
+                                                    <span className="font-medium text-gray-800">{file}</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleRunTest(file)}
+                                                    disabled={runningTest === file}
+                                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${runningTest === file
+                                                        ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                                        }`}
+                                                >
+                                                    {runningTest === file ? (
+                                                        <>
+                                                            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                                            Running...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Play size={16} /> Run Test
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+
+                                            {results[file] && (
+                                                <div className={`mt-3 p-3 rounded-lg text-sm border ${results[file].success
+                                                    ? 'bg-green-50 border-green-100'
+                                                    : 'bg-red-50 border-red-100'
+                                                    }`}>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        {results[file].success ? (
+                                                            <CheckCircle size={16} className="text-green-600" />
+                                                        ) : (
+                                                            <XCircle size={16} className="text-red-600" />
+                                                        )}
+                                                        <span className={`font-medium ${results[file].success ? 'text-green-800' : 'text-red-800'
+                                                            }`}>
+                                                            {results[file].success ? 'Passed' : 'Failed'}
+                                                        </span>
+                                                        <span className="text-gray-400 text-xs flex items-center gap-1 ml-auto">
+                                                            <Clock size={12} /> {results[file].duration}ms
+                                                        </span>
+                                                    </div>
+                                                    <pre className={`whitespace-pre-wrap font-mono text-xs mt-2 ${results[file].success ? 'text-green-700' : 'text-red-700'
+                                                        }`}>
+                                                        {results[file].output}
+                                                    </pre>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
-                    )}
+                    </div>
                 </div>
             </div>
         </div>

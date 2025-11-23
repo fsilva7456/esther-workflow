@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { configManager, UseCase } from './configManager';
 
 export interface Project {
     id: string;
@@ -22,48 +23,43 @@ const DEFAULT_PROJECTS: Project[] = [
 
 export const projectManager = {
     listProjects: (): Project[] => {
-        // Always include default projects
-        let projects = [...DEFAULT_PROJECTS];
-        
-        // Try to load additional projects from file
-        if (fs.existsSync(PROJECTS_FILE)) {
-            try {
-                const content = fs.readFileSync(PROJECTS_FILE, 'utf-8');
-                const fileProjects = JSON.parse(content) as Project[];
-                // Merge, avoiding duplicates by ID
-                const defaultIds = new Set(DEFAULT_PROJECTS.map(p => p.id));
-                const additionalProjects = fileProjects.filter(p => !defaultIds.has(p.id));
-                projects = [...projects, ...additionalProjects];
-            } catch (error) {
-                console.error('Error reading projects file:', error);
-            }
+        if (!fs.existsSync(PROJECTS_FILE)) {
+            return DEFAULT_PROJECTS;
         }
-        
-        return projects;
+        try {
+            const content = fs.readFileSync(PROJECTS_FILE, 'utf-8');
+            const projects = JSON.parse(content);
+            // Merge defaults with saved projects, avoiding duplicates by ID
+            const savedIds = new Set(projects.map((p: Project) => p.id));
+            const defaultsToAdd = DEFAULT_PROJECTS.filter(p => !savedIds.has(p.id));
+            return [...defaultsToAdd, ...projects];
+        } catch (error) {
+            console.error('Error reading projects file:', error);
+            return DEFAULT_PROJECTS;
+        }
     },
 
     addProject: (project: Omit<Project, 'id'>): Project => {
         const projects = projectManager.listProjects();
-        const newProject: Project = {
+        const newProject = {
             ...project,
-            id: Date.now().toString(), // Simple ID generation
+            id: Date.now().toString()
         };
-        projects.push(newProject);
-        projectManager.saveProjects(projects);
+
+        // Filter out defaults from the file save to keep it clean
+        const projectsToSave = [...projects.filter(p => !DEFAULT_PROJECTS.some(dp => dp.id === p.id)), newProject];
+
+        try {
+            fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projectsToSave, null, 2));
+        } catch (error) {
+            console.error('Error writing projects file:', error);
+            throw error;
+        }
         return newProject;
     },
 
     getProjectById: (id: string): Project | undefined => {
         const projects = projectManager.listProjects();
         return projects.find(p => p.id === id);
-    },
-
-    saveProjects: (projects: Project[]): void => {
-        try {
-            fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
-        } catch (error) {
-            console.error('Error saving projects file:', error);
-            throw error;
-        }
     }
 };

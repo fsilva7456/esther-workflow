@@ -13,6 +13,7 @@ function App() {
                 <Route path="/" element={<Navigate to="/projects" replace />} />
                 <Route path="/projects" element={<ProjectSelector />} />
                 <Route path="/projects/:projectId/use-cases" element={<UseCaseEditor />} />
+                <Route path="/projects/:projectId/use-cases/:useCaseId" element={<UseCaseEditor />} />
                 <Route path="/projects/:projectId/use-cases/:useCaseId/tests" element={<TestGenerator />} />
                 <Route path="/projects/:projectId/use-cases/:useCaseId/agent" element={<AgentHandoff />} />
                 <Route path="/projects/:projectId/tests" element={<TestDashboard />} />

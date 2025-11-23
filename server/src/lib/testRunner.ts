@@ -1,41 +1,57 @@
-import { execa } from 'execa';
+import execa = require('execa');
 
 export interface TestRunResult {
-    runId: string;
-    status: 'pending' | 'passed' | 'failed';
+    success: boolean;
     output: string;
-    timestamp: string;
+    error?: string;
+    duration: number;
 }
 
-// Simple in-memory store for test runs
-const testRuns: Record<string, TestRunResult> = {};
-
 export const testRunner = {
-    runTests: async (repoPath: string, command: string, args: string[] = []): Promise<string> => {
+    runTests: async (repoPath: string, testCommand: string, args: string[] = []): Promise<string> => {
         const runId = Date.now().toString();
-        testRuns[runId] = {
-            runId,
-            status: 'pending',
-            output: '',
-            timestamp: new Date().toISOString()
-        };
-
-        // Run asynchronously
-        (async () => {
-            try {
-                const { stdout, stderr } = await execa(command, args, { cwd: repoPath, shell: true });
-                testRuns[runId].status = 'passed';
-                testRuns[runId].output = stdout + '\n' + stderr;
-            } catch (error: any) {
-                testRuns[runId].status = 'failed';
-                testRuns[runId].output = error.message + '\n' + (error.stdout || '') + '\n' + (error.stderr || '');
-            }
-        })();
-
+        testRunner.execute(runId, repoPath, testCommand, args);
         return runId;
     },
 
+    // In-memory storage for test runs
+    results: new Map<string, TestRunResult>(),
+
+    execute: async (runId: string, repoPath: string, testCommand: string, args: string[]) => {
+        const startTime = Date.now();
+        try {
+            const [cmd, ...cmdArgs] = testCommand.split(' ');
+            const finalArgs = [...cmdArgs, ...args];
+
+            console.log(`Running test: ${cmd} ${finalArgs.join(' ')} in ${repoPath}`);
+
+            const { stdout, stderr } = await execa(cmd, finalArgs, {
+                cwd: repoPath,
+                all: true,
+                reject: false
+            });
+
+            const duration = Date.now() - startTime;
+            const success = !stderr && !stdout.includes('FAIL');
+
+            testRunner.results.set(runId, {
+                success,
+                output: stdout + (stderr ? '\nERRORS:\n' + stderr : ''),
+                duration
+            });
+
+        } catch (error: any) {
+            const duration = Date.now() - startTime;
+            testRunner.results.set(runId, {
+                success: false,
+                output: error.message,
+                error: error.message,
+                duration
+            });
+        }
+    },
+
     getTestRun: (runId: string): TestRunResult | undefined => {
-        return testRuns[runId];
+        return testRunner.results.get(runId);
     }
 };

@@ -3,92 +3,84 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAkPlWBn_eEPbcnN9FHHsXbpNL85sxQCxs';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyBR6rux2u9u-zCUCLbBPjxv9g4BcAee-Y8';
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+
+const generateWithRetry = async (prompt: string, retries = 5, delay = 5000): Promise<string> => {
+  try {
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  } catch (error: any) {
+    if (retries > 0 && (error.message?.includes('429') || error.status === 429)) {
+      console.log(`Rate limit hit. Retrying in ${delay}ms... (${retries} retries left)`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return generateWithRetry(prompt, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+};
+
+import { promptManager } from './promptManager';
+
+// ... (generateWithRetry remains the same)
 
 export const llmService = {
-  structureUseCase: async (description: string): Promise<string> => {
-    const prompt = `
-      You are an expert software architect.
-      Please convert the following raw use case description into a structured Markdown specification.
-      The specification should include:
-      - Title
-      - Description
-      - Actors
-      - Preconditions
-      - Main Flow (numbered list)
-      - Alternative Flows
-      - Postconditions
-
-      Raw Description:
-      ${description}
-    `;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+  structureUseCase: async (description: string, title?: string, currentSpec?: string, customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('structureUseCase');
+    const prompt = promptManager.interpolate(template, {
+      title: title || 'Untitled',
+      existingSpec: currentSpec ? `Existing Specification Content:\n${currentSpec}\n` : '',
+      description
+    });
+    return generateWithRetry(prompt);
   },
 
-  reviseUseCase: async (currentSpec: string, instructions: string): Promise<string> => {
-    const prompt = `
-      You are an expert software architect.
-      Please revise the following use case specification based on the instructions provided.
-      Return ONLY the updated Markdown specification.
-
-      Current Spec:
-      ${currentSpec}
-
-      Instructions:
-      ${instructions}
-    `;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+  reviseUseCase: async (currentSpec: string, instructions: string, customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('reviseUseCase');
+    const prompt = promptManager.interpolate(template, {
+      currentSpec,
+      instructions
+    });
+    return generateWithRetry(prompt);
   },
 
-  generateTests: async (spec: string, type: 'unit' | 'integration'): Promise<string> => {
-    const prompt = `
-      You are an expert QA engineer and developer.
-      Based on the following use case specification, generate ${type} tests in TypeScript.
-      Return ONLY the code block for the tests. Do not include markdown formatting like \`\`\`typescript.
-
-      Specification:
-      ${spec}
-    `;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    // Strip markdown code blocks if present
+  generateTests: async (spec: string, type: 'unit' | 'integration', customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('generateTests');
+    const prompt = promptManager.interpolate(template, {
+      type,
+      spec
+    });
+    const text = await generateWithRetry(prompt);
     return text.replace(/^```typescript\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
   },
 
-  reviseTests: async (currentTests: string, instructions: string): Promise<string> => {
-    const prompt = `
-      You are an expert developer.
-      Please revise the following test code based on the instructions.
-      Return ONLY the updated code.
-
-      Current Tests:
-      ${currentTests}
-
-      Instructions:
-      ${instructions}
-    `;
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+  reviseTests: async (currentTests: string, instructions: string, customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('reviseTests');
+    const prompt = promptManager.interpolate(template, {
+      currentTests,
+      instructions
+    });
+    const text = await generateWithRetry(prompt);
     return text.replace(/^```typescript\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
   },
 
-  generateAgentInstructions: async (spec: string, testPaths: string[]): Promise<string> => {
-    const prompt = `
-      You are a technical lead.
-      Generate a clear set of instructions for an AI coding agent to implement the features described in the spec.
-      Include references to the test files that need to pass.
+  updateTestsFromSpec: async (currentTests: string, newSpec: string, customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('updateTestsFromSpec');
+    const prompt = promptManager.interpolate(template, {
+      newSpec,
+      currentTests
+    });
+    const text = await generateWithRetry(prompt);
+    return text.replace(/^```typescript\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
+  },
 
-      Spec:
-      ${spec}
-
-      Test Files:
-      ${testPaths.join(', ')}
-    `;
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+  generateAgentInstructions: async (spec: string, testPaths: string[], customPromptTemplate?: string): Promise<string> => {
+    const template = customPromptTemplate || await promptManager.getPromptTemplate('generateAgentInstructions');
+    const prompt = promptManager.interpolate(template, {
+      spec,
+      testFiles: testPaths.join(', ')
+    });
+    return generateWithRetry(prompt);
   }
 };
